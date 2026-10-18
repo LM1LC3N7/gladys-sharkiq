@@ -22,7 +22,7 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import { AUTH0_REDIRECT_URI, AUTH0_SCOPES, LIMITS, TIMINGS, USER_AGENTS } from './constants.js';
-import { SharkError, header, parseRetryAfter, tryJson } from './http.js';
+import { BEFORE_SEND, SharkError, header, networkError, parseRetryAfter, tryJson } from './http.js';
 
 /** Auth0 `error` codes that mean "a person must act" (a CAPTCHA, a code, MFA). */
 const VERIFICATION = new Set([
@@ -145,11 +145,34 @@ export async function auth0SignIn({
   now = Date.now,
   random,
 }) {
+  // The first request carries the password: a failure proved to come before
+  // any byte left (BEFORE_SEND) is marked, so the caller may try once more.
+  let calls = 0;
+  const counted = async (url, options) => {
+    calls += 1;
+    const first = calls === 1;
+    try {
+      return await transport(url, options);
+    } catch (err) {
+      const error = err instanceof SharkError ? err : networkError(err);
+      if (first && error.kind === 'network' && BEFORE_SEND.has(error.socket)) {
+        error.beforeSend = true;
+      }
+      throw error;
+    }
+  };
   if (region.flow === 'password') {
-    return passwordGrant({ transport, region, email, password, timeout, now });
+    return passwordGrant({ transport: counted, region, email, password, timeout, now });
   }
-  return crossOrigin({ transport, region, email, password, timeout, now, random });
+  return crossOrigin({ transport: counted, region, email, password, timeout, now, random });
 }
+
+/** Marks an error raised after Auth0 accepted the password ("sign-in not finished"). */
+const afterPassword = (err) => {
+  const error = err instanceof SharkError ? err : networkError(err);
+  error.afterPassword = true;
+  return error;
+};
 
 async function passwordGrant({ transport, region, email, password, timeout, now }) {
   const body = JSON.stringify({
@@ -170,13 +193,35 @@ async function passwordGrant({ transport, region, email, password, timeout, now 
     body,
     timeout,
   });
-  return idTokenOf(successJson(answer, now()));
+  const data = successJson(answer, now());
+  try {
+    return idTokenOf(data);
+  } catch (err) {
+    // A 200 without an id token: the password was accepted.
+    throw afterPassword(err);
+  }
 }
 
-/** A Location of the region's Auth0 origin as an absolute URL, or the deep link. */
+/**
+ * The query of the app's deep link, or undefined when `location` is not
+ * exactly that link (same scheme, host and path, then `?` or nothing): a
+ * look-alike ("…/callback.evil?code=", "…/callback/../x?code=") is refused.
+ */
+export function deepLinkParams(location) {
+  if (typeof location !== 'string' || !location.startsWith(AUTH0_REDIRECT_URI)) {
+    return undefined;
+  }
+  const rest = location.slice(AUTH0_REDIRECT_URI.length);
+  if (rest !== '' && !rest.startsWith('?')) {
+    return undefined;
+  }
+  return new URLSearchParams(rest.slice(1).split('#', 1)[0]);
+}
+
+/** A Location of the region's Auth0 origin as an absolute URL, or the exact deep link. */
 function locationOf(answer, origin) {
   const location = header(answer.headers, 'location') ?? '';
-  if (location.startsWith(AUTH0_REDIRECT_URI)) {
+  if (deepLinkParams(location)) {
     return location;
   }
   if (location === '') {
@@ -203,8 +248,12 @@ async function crossOrigin({ transport, region, email, password, timeout, now, r
     Origin: origin,
     Referer: `${origin}/`,
   };
-  const call = async (url, { method = 'GET', form, json, accept = 'application/json' } = {}) => {
-    const headers = { ...base, Accept: accept };
+  const call = async (
+    url,
+    { method = 'GET', form, json, accept = 'application/json', bare = false } = {},
+  ) => {
+    // `bare`: the code exchange sends only its Content-Type, as auth0.py does.
+    const headers = bare ? {} : { ...base, Accept: accept };
     let body;
     if (form) {
       body = new URLSearchParams(form).toString();
@@ -216,7 +265,7 @@ async function crossOrigin({ transport, region, email, password, timeout, now, r
     if (body !== undefined) {
       headers['Content-Length'] = Buffer.byteLength(body);
     }
-    if (jar.size > 0) {
+    if (!bare && jar.size > 0) {
       headers.Cookie = jar.header;
     }
     const answer = await transport(url, {
@@ -243,9 +292,17 @@ async function crossOrigin({ transport, region, email, password, timeout, now, r
   });
   const ticket = successJson(ticketAnswer, now()).login_ticket;
   if (typeof ticket !== 'string' || ticket === '' || ticket.length > 4096) {
-    throw new SharkError('unsupported', 'Auth0 sent no login ticket');
+    throw afterPassword(new SharkError('unsupported', 'Auth0 sent no login ticket'));
   }
+  // The password was accepted: whatever fails from here is "not finished".
+  try {
+    return await finishCrossOrigin({ call, origin, region, ticket, now, random });
+  } catch (err) {
+    throw afterPassword(err);
+  }
+}
 
+async function finishCrossOrigin({ call, origin, region, ticket, now, random }) {
   // 2. The authorization with the ticket and PKCE: a redirect, read by hand.
   const pkce = pkcePair(random);
   const query = new URLSearchParams({
@@ -294,10 +351,9 @@ async function crossOrigin({ transport, region, email, password, timeout, now, r
   if (location.startsWith(`${origin}/authorize/resume`)) {
     location = redirected(await call(location, { accept: 'text/html' }));
   }
-  let params;
-  try {
-    params = new URL(location).searchParams;
-  } catch {
+  // The code is read only from the exact deep link of the app.
+  const params = deepLinkParams(location);
+  if (!params) {
     throw new SharkError('unsupported', 'no authorization code');
   }
   const refused = codeOf({ error: params.get('error') ?? undefined });
@@ -312,6 +368,7 @@ async function crossOrigin({ transport, region, email, password, timeout, now, r
   // 5. The code and the PKCE verifier, for the tokens.
   const tokens = await call(`${origin}/oauth/token`, {
     method: 'POST',
+    bare: true,
     json: {
       grant_type: 'authorization_code',
       client_id: region.clientId,

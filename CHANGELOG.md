@@ -35,4 +35,22 @@ the notes of the version's GitHub Release.
   Discovery list are sent again at each reconnection to Gladys.
 - Feature names and texts in French or English.
 
+### Fixed
+
+- The password is never sent again by itself after a server error, a timeout
+  or a "too many requests" of the sign-in: the allowance is used up and saved
+  before it leaves, only a failure proved to come before the send is tried
+  again (twice at most), and anything else is an "interrupted" or
+  "unfinished" sign-in that waits for a click on "Sign in to Shark". After an
+  accepted password, only the Ayla exchange is tried again, without the
+  password.
+- A configuration event before the first connection no longer lifts a stop;
+  an unreadable `/data` stops the integration instead of signing in again.
+- A short Ayla token is renewed at half its life, and two renewals are at
+  least a minute apart.
+- The US sign-in reads the code only from the exact link of the app, and its
+  code exchange sends only its Content-Type.
+- The docs say the European sign-in is the direct Auth0 password grant, which
+  the SharkNinja bot detection may refuse with no way around it.
+
 [Unreleased]: https://github.com/LM1LC3N7/gladys-sharkiq/commits/main

@@ -8,7 +8,10 @@ import assert from 'node:assert/strict';
 import { accountKey, normalizeConfig } from '../src/config.js';
 import { statesOf } from '../src/devices.js';
 import { integerOf, parseDevices, parseRobot, stateOf } from '../src/model.js';
-import { normalizeMemory } from '../src/store.js';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { StoreError, fileStore, normalizeMemory } from '../src/store.js';
 import { HOUR, NOW } from './fixtures/shark.js';
 
 const prop = (name, value) => ({ property: { name, value } });
@@ -116,6 +119,23 @@ test('the configuration: region, interval bounds, language, account hash', () =>
   assert.deepEqual([defaults.region, defaults.pollInterval, defaults.language], ['eu', 60, 'fr']);
 });
 
+test('the /data file: none yet is null; a corrupt one throws, never read as empty', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'sharkiq-'));
+  try {
+    const path = join(dir, 'state.json');
+    const store = fileStore(path);
+    assert.equal(await store.load(), null, 'ENOENT: nothing saved yet');
+    await store.save({ account: 'abc' });
+    assert.deepEqual(await store.load(), { account: 'abc' });
+    await writeFile(path, '{"account": "ab', 'utf8');
+    await assert.rejects(store.load(), (err) => err instanceof StoreError);
+    const folder = fileStore(dir);
+    await assert.rejects(folder.load(), (err) => err instanceof StoreError, 'EISDIR');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('the persisted state is repaired and its pauses capped', () => {
   const memory = normalizeMemory(
     {
@@ -152,5 +172,6 @@ test('the persisted state is repaired and its pauses capped', () => {
     pause: null,
     block: null,
     signIn: false,
+    preSend: 0,
   });
 });

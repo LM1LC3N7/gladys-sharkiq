@@ -46,14 +46,25 @@ integration sends **the password only when you ask**:
   them);
 - then only when you click **Sign in to Shark**.
 
-A refused password, a verification asked, a blocked account or an expired
+The sign-in allowance is used up, and saved to `/data`, **before** the
+password leaves: when `/data` cannot be written, nothing is sent. Only a
+failure proved to come before the password left (unknown host name, no
+connection) is tried again, twice at most.
+
+A refused password, a verification asked, a blocked account, an
+**interrupted** sign-in (no answer, a server error or "too many requests" from
+SharkNinja after the password was sent), an **unfinished** sign-in (password
+accepted, but the next step failed), an unreadable `/data` or an expired
 session stop the integration, and the stop is kept across restarts: it never
-tries again by itself. Fix what the status says (in the SharkClean app if
-needed), then click **Sign in to Shark**. **Test the connection** reads the
-robots with the current session and never uses the password.
+tries the password again by itself. After an accepted password, only the
+Ayla exchange (without the password) is tried again, three times at most,
+spaced. Fix what the status says (in the SharkClean app if needed), then
+click **Sign in to Shark**. **Test the connection** reads the robots with the
+current session and never uses the password.
 
 Meanwhile, the session (about 24 hours) is renewed by a timer, 10 minutes
-before it ends, with the refresh token: without the password.
+before it ends (at half its life for a short session), with the refresh
+token: without the password, and never twice within a minute.
 
 ## Password, tokens and privacy
 
@@ -113,6 +124,11 @@ before it ends, with the refresh token: without the password.
 
 - Never tested with a real robot or account: the property names, their values
   and the sign-in come from sharkiq 1.5.1.
+- **European accounts**: the sign-in is the direct Auth0 "password grant"
+  (e-mail and password in one request). The Auth0 bot detection
+  (`requires_verification`, CAPTCHA) may refuse it, with no way around it: the
+  integration then stops ("verification"). sharkiq left this flow in the
+  United States for that reason.
 - The North American sign-in goes through an Auth0 consent page read
   automatically: if SharkNinja changes it, the sign-in fails (a stop, no new
   try).

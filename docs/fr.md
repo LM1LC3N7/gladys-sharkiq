@@ -49,16 +49,27 @@ L'intégration n'envoie donc **le mot de passe qu'à votre demande** :
   démarrage avec eux) ;
 - ensuite, seulement quand vous cliquez sur **Se connecter à Shark**.
 
-Un mot de passe refusé, une vérification demandée, un compte bloqué ou une
-session expirée arrêtent l'intégration, et cet arrêt est gardé aux
-redémarrages : elle ne réessaie jamais d'elle-même. Corrigez ce qui est
-indiqué (dans l'application SharkClean si besoin), puis cliquez sur **Se
-connecter à Shark**. **Tester la connexion** lit les robots avec la session
-en cours et n'utilise jamais le mot de passe.
+L'autorisation de connexion est consommée, et enregistrée dans `/data`,
+**avant** l'envoi du mot de passe : si `/data` ne peut pas être écrit, rien
+ne part. Seul un échec prouvé avant l'envoi (nom introuvable, connexion
+impossible) est réessayé, deux fois au plus.
+
+Un mot de passe refusé, une vérification demandée, un compte bloqué, une
+connexion **interrompue** (pas de réponse, erreur serveur ou « trop de
+requêtes » de SharkNinja après l'envoi du mot de passe), une connexion
+**inachevée** (mot de passe accepté, mais l'étape suivante a échoué), un
+état `/data` illisible ou une session expirée arrêtent l'intégration, et cet
+arrêt est gardé aux redémarrages : elle ne réessaie jamais d'elle-même avec
+le mot de passe. Après un mot de passe accepté, seul l'échange chez Ayla
+(sans le mot de passe) est réessayé, trois fois au plus, espacées. Corrigez
+ce qui est indiqué (dans l'application SharkClean si besoin), puis cliquez
+sur **Se connecter à Shark**. **Tester la connexion** lit les robots avec la
+session en cours et n'utilise jamais le mot de passe.
 
 Entre-temps, la session (environ 24 heures) est renouvelée par un minuteur,
-10 minutes avant sa fin, avec le jeton de rafraîchissement : sans le mot de
-passe.
+10 minutes avant sa fin (à mi-vie pour une session courte), avec le jeton de
+rafraîchissement : sans le mot de passe, et jamais deux fois en moins d'une
+minute.
 
 ## Mot de passe, jetons et vie privée
 
@@ -119,6 +130,11 @@ passe.
 
 - Jamais testée avec un vrai robot ni un vrai compte : les noms des
   propriétés, leurs valeurs et la connexion viennent de sharkiq 1.5.1.
+- **Comptes européens** : la connexion est le « password grant » Auth0
+  direct (e-mail et mot de passe envoyés en une requête). La détection de
+  robots d'Auth0 (`requires_verification`, CAPTCHA) peut la refuser, sans
+  contournement possible : l'intégration s'arrête alors (« vérification »).
+  sharkiq a quitté ce flux aux États-Unis pour cette raison.
 - La connexion nord-américaine passe par une page de consentement d'Auth0
   lue automatiquement : si SharkNinja la change, la connexion échoue (arrêt,
   sans nouvel essai).

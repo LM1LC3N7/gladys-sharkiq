@@ -51,10 +51,13 @@ export const REGIONS = {
 };
 
 /**
- * The User-Agents of sharkiq: a desktop browser for the Auth0 password grant
- * and Ayla (BROWSER_USERAGENT), an Android browser for the cross-origin flow
- * (auth0.py). The SharkNinja Auth0 tenant runs a bot detection: the
- * integration presents itself as the library does.
+ * The User-Agents. sharkiq sends its desktop browser one (BROWSER_USERAGENT)
+ * to Ayla, and the Android browser one in the US cross-origin flow
+ * (auth0.py). Its EU password grant goes through auth0-python
+ * (`GetToken.login`), which sends that library's own User-Agent
+ * ("Python/3.x") and an `Auth0-Client` header: here the EU grant sends the
+ * desktop browser one instead (a choice, not a copy; to check on a real EU
+ * account, see TODO.md).
  */
 export const USER_AGENTS = {
   browser:
@@ -159,8 +162,21 @@ export const TIMINGS = {
   recentCommand: MINUTE,
   /** The re-reads after a command, to show its effect. */
   followUps: [5_000, 15_000, 45_000],
-  /** Renew the Ayla token this long before it expires (sharkiq: 600 s). */
+  /**
+   * Renew the Ayla token this long before it expires (sharkiq: 600 s), or at
+   * half its lifetime when it lasts less than twice that.
+   */
   tokenMargin: 10 * MINUTE,
+  /** Two renewals are at least this far apart, whatever asks (timer, read, 401, command). */
+  renewMinGap: MINUTE,
+  /**
+   * A sign-in that failed before the password could leave (the name did not
+   * resolve, no connection) may be tried again this many times, spaced by the
+   * backoff; the count is kept in /data.
+   */
+  preSendRetries: 2,
+  /** The Ayla exchange of an id token already obtained: tried at most this many times. */
+  exchangeAttempts: 3,
   /** Lifetime assumed when Ayla gives none. */
   tokenLifetime: HOUR,
   /** The longest lifetime believed (a bigger `expires_in` is capped). */

@@ -5,11 +5,15 @@
 //
 // The password is used only when the user acts: once after the credentials
 // are saved (or at the first start with them), then only on a click on
-// "Sign in to Shark". A refused password, a verification asked (a code, a
-// CAPTCHA), a blocked account or an expired session is a stop kept in /data,
-// never retried by itself: each attempt counts against the Auth0 lockout, and
-// could send a code. The Ayla token (about 24 h) is renewed from the refresh
-// token by a timer of its own, 10 minutes before it expires.
+// "Sign in to Shark". The allowance is used up and saved BEFORE the password
+// leaves; only a failure proved to come before it left (no name, no
+// connection) gives it back, twice at most. A refused password, a
+// verification asked (a code, a CAPTCHA), a blocked account, an interrupted
+// or unfinished sign-in, an unreadable /data or an expired session is a stop
+// kept in /data, never retried by itself: each attempt counts against the
+// Auth0 lockout, and could send a code. The Ayla token (about 24 h) is
+// renewed from the refresh token by a timer of its own, 10 minutes before it
+// expires (half its lifetime for a short one), never twice within a minute.
 //
 // Commands (five buttons and the suction select):
 // - every command is refused when it cannot be sent within 3.5 s of its
@@ -51,11 +55,28 @@ import { isCleaning, parseDevices, parseRobot } from './model.js';
 import { StatePublisher } from './publisher.js';
 import { fileStore, normalizeMemory } from './store.js';
 
-/** Stops never lifted by themselves: only "Sign in to Shark" or new credentials. */
-const STOPS = new Set(['refused', 'verification', 'locked', 'unsupported', 'session_expired']);
+/**
+ * Stops never lifted by themselves: only "Sign in to Shark" or new
+ * credentials. `interrupted`: the password may have left but no answer
+ * says how it went; `incomplete`: Auth0 accepted the password, the end of
+ * the sign-in failed; `store`: /data cannot be read or written.
+ */
+const STOPS = new Set([
+  'refused',
+  'verification',
+  'locked',
+  'unsupported',
+  'session_expired',
+  'interrupted',
+  'incomplete',
+  'store',
+]);
 
-/** Sign-in errors after which the password may be tried again (Auth0 never judged it). */
-const SIGN_IN_TRANSIENT = new Set(['network', 'timeout', 'unavailable', 'rate_limited']);
+/** Auth0 answers that judged the password: a stop of their own kind. */
+const JUDGED = new Set(['refused', 'verification', 'locked', 'unsupported', 'no_credentials']);
+
+/** Failures of the Ayla exchange (no password involved) worth another try. */
+const EXCHANGE_TRANSIENT = new Set(['network', 'timeout', 'unavailable', 'rate_limited']);
 
 /** Errors after which the cloud did not answer usefully: every robot is unreachable. */
 const OFFLINE = new Set(['network', 'timeout', 'unavailable']);
@@ -148,7 +169,13 @@ export class SharkApp {
     this.lastStatus = undefined;
     this.lastTestAt = -Infinity;
     this.lastSignInAt = -Infinity;
-    this.lastRenewAt = -Infinity;
+    /** An Auth0 id token whose Ayla exchange failed: kept in memory only, never the password. */
+    this.idToken = undefined;
+    this.exchangeFailures = 0;
+    /** The password is on its way: a save now records the "interrupted" stop. */
+    this.signingIn = false;
+    /** /data could not be read: no sign-in without a click. */
+    this.storeBroken = false;
     this.started = false;
   }
 
@@ -160,18 +187,35 @@ export class SharkApp {
     await this.running;
     this.config = normalizeConfig(raw);
     this.reset();
-    const loaded = normalizeMemory(await this.store.load().catch(() => null), this.now());
+    let saved = null;
+    this.storeBroken = false;
+    try {
+      saved = await this.store.load();
+    } catch (err) {
+      // Not "no file yet" (EACCES, a corrupt file): what it held is unknown,
+      // so no sign-in by itself, and the file is left as it is.
+      this.storeBroken = true;
+      this.logger.warn(`Shark: /data cannot be read (${err.message})`);
+    }
+    const loaded = normalizeMemory(saved, this.now());
     const { account } = this.config;
     let memory = loaded;
     if (loaded.account !== account) {
       // Credentials never used here (the first save, another e-mail or region):
       // their tokens and stops are not these, and one sign-in is allowed. A 429 pause stays.
-      memory = { account, tokens: null, pause: loaded.pause, block: null, signIn: account !== '' };
+      memory = {
+        account,
+        tokens: null,
+        pause: loaded.pause,
+        block: null,
+        signIn: account !== '',
+        preSend: 0,
+      };
     }
     if (fresh) {
-      memory = { ...memory, tokens: null, block: null, signIn: account !== '' };
+      memory = { ...memory, tokens: null, block: null, signIn: account !== '', preSend: 0 };
     }
-    if (!this.config.email || !this.config.password) {
+    if (!this.config.email || !this.config.password || this.storeBroken) {
       memory = { ...memory, tokens: null, signIn: false };
     }
     this.memory = memory;
@@ -191,11 +235,20 @@ export class SharkApp {
       password: this.config.password,
       tokens: memory.tokens,
     });
-    if (this.client.hasCredentials && !this.client.tokens && !memory.signIn && !this.blocked) {
+    if (this.storeBroken && this.client.hasCredentials) {
+      this.blocked = 'store';
+    } else if (
+      this.client.hasCredentials &&
+      !this.client.tokens &&
+      !memory.signIn &&
+      !this.blocked
+    ) {
       // Signed in before with these credentials, but the session is gone: a click is needed.
       this.blocked = 'session_expired';
     }
-    await this.persist();
+    if (!this.storeBroken) {
+      await this.persist();
+    }
     this.publisher.start();
     if (!this.client.hasCredentials) {
       await this.setStatus(false, T.noCredentials);
@@ -249,6 +302,9 @@ export class SharkApp {
     this.offline = false;
     this.failures = 0;
     this.renewFailures = 0;
+    this.idToken = undefined;
+    this.exchangeFailures = 0;
+    this.signingIn = false;
     if (this.pauseKind !== 'rate' || this.now() >= this.pausedUntil) {
       this.pausedUntil = 0;
       this.pauseKind = undefined;
@@ -282,6 +338,11 @@ export class SharkApp {
 
   /** New credentials restart (their sign-in is allowed); the rest applies at once. */
   async configUpdated(raw = {}) {
+    if (!this.started) {
+      // Before the first connection: `connected` reads the configuration
+      // itself. Taken now, it would look like new credentials and lift a stop.
+      return undefined;
+    }
     const next = normalizeConfig(raw);
     const previous = this.config;
     if (
@@ -329,8 +390,11 @@ export class SharkApp {
     return this.hardPaused && this.pauseSource === 'auth';
   }
 
-  /** The tokens, the pause, the stop and the sign-in allowance, with their account. */
-  async persist() {
+  /**
+   * The tokens, the pause, the stop and the sign-in allowance, with their
+   * account. `strict`: a failed save throws (before the password leaves).
+   */
+  async persist({ strict = false } = {}) {
     const persisted = this.now() < this.pausedUntil && this.pauseKind !== 'backoff';
     this.memory = {
       account: this.config.account,
@@ -338,12 +402,25 @@ export class SharkApp {
       pause: persisted
         ? { kind: this.pauseKind, until: this.pausedUntil, source: this.pauseSource ?? 'api' }
         : null,
-      block: this.blocked ? { kind: this.blocked, detail: this.blockDetail } : null,
+      // While the password is on its way, or an id token waits for its
+      // exchange, a restart must find a stop: never a new sign-in by itself.
+      block: this.blocked
+        ? { kind: this.blocked, detail: this.blockDetail }
+        : this.idToken
+          ? { kind: 'incomplete' }
+          : this.signingIn
+            ? { kind: 'interrupted' }
+            : null,
       signIn: this.memory.signIn === true,
+      preSend: this.memory.preSend ?? 0,
     };
-    await this.store
-      .save(this.memory)
-      .catch((err) => this.logger.warn(`Saving the state to /data failed: ${err.message}`));
+    if (strict) {
+      await this.store.save(this.memory);
+    } else {
+      await this.store
+        .save(this.memory)
+        .catch((err) => this.logger.warn(`Saving the state to /data failed: ${err.message}`));
+    }
     // New tokens, a new pause or a stop: the renewal follows.
     this.scheduleRenew();
   }
@@ -370,7 +447,7 @@ export class SharkApp {
     let at = delay === undefined ? renewAt : this.now() + delay;
     // A floor: a token shorter than the margin, or a host clock ahead, would
     // otherwise renew at once again and again.
-    at = Math.max(at, this.lastRenewAt + TIMINGS.renewRetry[0]);
+    at = Math.max(at, this.client.lastRenewAt + TIMINGS.renewMinGap);
     if (this.authPaused) {
       at = Math.max(at, this.pausedUntil);
     }
@@ -386,7 +463,6 @@ export class SharkApp {
           return;
         }
         // A success persists the new tokens, which schedules the next renewal.
-        this.lastRenewAt = this.now();
         this.client
           .token({ force: true })
           .then(() => {
@@ -463,10 +539,14 @@ export class SharkApp {
     this.client.timeout = quick ? TIMINGS.quickTimeout : undefined;
     try {
       if (!this.client.tokens) {
-        if (!this.memory.signIn) {
+        if (this.idToken) {
+          // Auth0 already accepted the password: only the Ayla exchange again.
+          await this.exchange();
+        } else if (this.memory.signIn) {
+          await this.signIn();
+        } else {
           throw new SharkError('session_expired', 'no session');
         }
-        await this.signIn();
       }
       if (generation !== this.generation) {
         return;
@@ -514,25 +594,86 @@ export class SharkApp {
 
   /**
    * The one sign-in with the password these credentials (or this click)
-   * allow. Only a network error, a timeout, a 5xx or a 429 keep it allowed
-   * (Auth0 did not judge the password); anything else uses it up.
+   * allow. The allowance is used up, and saved to /data, BEFORE the password
+   * leaves: a failed save sends nothing. Only a failure proved to come
+   * before the password left (the name did not resolve, no connection, on
+   * the first Auth0 request) gives it back, twice at most (count kept in
+   * /data). Anything else is a stop that waits for a click: a timeout, a
+   * reset, a 5xx or a 429 of Auth0 ("interrupted"), or a failure after Auth0
+   * accepted the password ("incomplete"). The id token of an accepted
+   * password is kept in memory, so only its Ayla exchange is tried again.
    */
   async signIn() {
-    try {
-      await this.client.signIn();
-    } catch (err) {
-      if (!SIGN_IN_TRANSIENT.has(err.kind)) {
-        this.memory.signIn = false;
-        if (!STOPS.has(err.kind)) {
-          throw new SharkError('unsupported', 'unexpected sign-in answer', {
-            status: err.status,
-            code: err.kind,
-          });
-        }
-      }
-      throw err;
-    }
     this.memory.signIn = false;
+    this.signingIn = true;
+    try {
+      await this.persist({ strict: true });
+    } catch (err) {
+      this.signingIn = false;
+      throw new SharkError('store', `cannot save the state before signing in (${err.message})`);
+    }
+    let idToken;
+    try {
+      idToken = await this.client.auth0();
+    } catch (err) {
+      this.signingIn = false;
+      throw this.signInError(err);
+    }
+    this.signingIn = false;
+    this.idToken = idToken;
+    this.exchangeFailures = 0;
+    await this.exchange();
+  }
+
+  /** What a failed Auth0 step becomes (see signIn). */
+  signInError(err) {
+    if (err.beforeSend && (this.memory.preSend ?? 0) < TIMINGS.preSendRetries) {
+      this.memory.preSend = (this.memory.preSend ?? 0) + 1;
+      this.memory.signIn = true;
+      this.logger.info('Shark: the sign-in failed before the password left; one more try later');
+      return err;
+    }
+    if (err.afterPassword) {
+      return new SharkError('incomplete', 'the sign-in did not finish', {
+        status: err.status,
+        code: err.code ?? err.kind,
+      });
+    }
+    if (JUDGED.has(err.kind)) {
+      return err;
+    }
+    if (err.kind === 'rate_limited') {
+      this.pause(err);
+    }
+    return new SharkError('interrupted', 'the sign-in was interrupted', {
+      status: err.status,
+      code: err.kind,
+    });
+  }
+
+  /**
+   * The Ayla exchange of the id token (no password): a network error, a
+   * timeout, a 5xx or a 429 is tried again on the next runs (spaced by the
+   * backoff), three times in all; then, or on any other failure,
+   * "incomplete".
+   */
+  async exchange() {
+    try {
+      await this.client.exchange(this.idToken);
+    } catch (err) {
+      this.exchangeFailures += 1;
+      if (EXCHANGE_TRANSIENT.has(err.kind) && this.exchangeFailures < TIMINGS.exchangeAttempts) {
+        throw err;
+      }
+      this.idToken = undefined;
+      throw new SharkError('incomplete', 'the sign-in did not finish', {
+        status: err.status,
+        code: err.kind,
+      });
+    }
+    this.idToken = undefined;
+    this.exchangeFailures = 0;
+    this.memory.preSend = 0;
     this.blocked = undefined;
     await this.persist();
     this.logger.info('Shark: signed in');
@@ -605,6 +746,12 @@ export class SharkApp {
         return T.unsupported(this.blockDetail);
       case 'session_expired':
         return T.sessionExpired;
+      case 'interrupted':
+        return T.interrupted;
+      case 'incomplete':
+        return T.incomplete;
+      case 'store':
+        return T.storeBroken;
       default:
         return T.refused;
     }
@@ -847,7 +994,10 @@ export class SharkApp {
     const receivedAt = this.now();
     const target = parseFeatureId(feature?.external_id);
     if (!target || !COMMAND_ROLES.includes(target.role)) {
-      throw new Error(`${feature?.external_id} cannot be set`);
+      // Never the whole external id (it holds the serial number).
+      throw new Error(
+        target ? `The ${target.role} of ${short(target.dsn)} cannot be set` : 'Not a Shark command',
+      );
     }
     const { dsn, role } = target;
     if (role === 'suction') {
@@ -1260,7 +1410,12 @@ export class SharkApp {
       this.blocked = undefined;
       this.blockDetail = undefined;
       this.client.tokens = null;
+      this.idToken = undefined;
+      this.exchangeFailures = 0;
+      // The click decides: what /data held (unreadable) is replaced.
+      this.storeBroken = false;
       this.memory.signIn = true;
+      this.memory.preSend = 0;
     }
     this.liftBackoff();
     this.listAt = undefined;

@@ -46,7 +46,10 @@ export function fakeShark({ lifetime = 24 * HOUR, consent = true } = {}) {
     beeps: 0,
     /** Every token ever made, to check none reaches the logs. */
     secrets: [],
+    /** true: every request fails with a reset; a socket code (ENOTFOUND…): fails before sending. */
     down: false,
+    /** A status answered by Ayla token_sign_in (e.g. 503), while set. */
+    exchangeStatus: undefined,
     /** One-shot answers: { match(request), status, body, headers, before(), throws } */
     queue: [],
     of(role) {
@@ -188,6 +191,9 @@ export function fakeShark({ lifetime = 24 * HOUR, consent = true } = {}) {
   function login(request, region) {
     const { path, body = {} } = request;
     if (path === '/api/v1/token_sign_in') {
+      if (server.exchangeStatus) {
+        return json(server.exchangeStatus, { errors: 'unavailable' });
+      }
       if (body.app_id !== region.appId || body.app_secret !== region.appSecret) {
         return json(404, { errors: 'Could not find application' });
       }
@@ -277,6 +283,7 @@ export function fakeShark({ lifetime = 24 * HOUR, consent = true } = {}) {
       headers,
       body: parsed,
       timeout,
+      at: Date.now(),
     };
     server.requests.push(request);
     const forced = server.queue.findIndex((q) => q.match(request));
@@ -291,7 +298,8 @@ export function fakeShark({ lifetime = 24 * HOUR, consent = true } = {}) {
       }
     }
     if (server.down) {
-      throw new SharkError('network', 'connection refused');
+      const socket = typeof server.down === 'string' ? server.down : 'ECONNRESET';
+      throw new SharkError('network', 'connection failed', { socket });
     }
     if (!host) {
       return json(404, {});

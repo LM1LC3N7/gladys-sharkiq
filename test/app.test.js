@@ -12,6 +12,7 @@ import { accountKey } from '../src/config.js';
 import { ACTIONS } from '../src/constants.js';
 import { registerHandlers } from '../src/handlers.js';
 import { SharkError } from '../src/http.js';
+import { StoreError } from '../src/store.js';
 import {
   DSNS,
   EMAIL,
@@ -587,16 +588,186 @@ test('new credentials: their one sign-in, the old tokens dropped', async (t) => 
   assert.notEqual(store.data.tokens.refreshToken, before);
 });
 
-test('a network failure of the first sign-in is tried again; a refusal is not', async (t) => {
+test('a failure before the password left (no DNS): tried again, twice at most, count kept', async (t) => {
   const server = fakeShark();
-  server.down = true;
+  server.down = 'ENOTFOUND';
   const { gladys, advance, store } = await setup(t, { server, create: false });
   assert.match(message(gladys).fr, /injoignable \(erreur réseau\)/);
-  assert.equal(store.data.signIn, true, 'the allowance stays');
+  assert.deepEqual([store.data.signIn, store.data.preSend], [true, 1]);
+  await advance(6 * HOUR, MINUTE);
+  assert.equal(server.signIns().length, 3, 'the first try and two more, never again');
+  assert.equal(store.data.block.kind, 'interrupted');
   server.down = false;
+  const ack = await gladys.fake.action(ACTIONS.SIGN_IN);
+  assert.match(ack.data.message.fr, /Connecté à Shark/);
+  assert.equal(store.data.preSend, 0);
+});
+
+test('the allowance is used up and saved before the password leaves', async (t) => {
+  const server = fakeShark();
+  const saved = [];
+  server.queue.push({
+    match: (r) => r.path === '/oauth/token',
+    before: () => saved.push(structuredClone(store.data)),
+  });
+  const store = memoryStore();
+  await setup(t, { server, store, create: false });
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].signIn, false, 'used up before the request');
+  assert.equal(saved[0].block.kind, 'interrupted', 'a restart then would find a stop');
+});
+
+for (const [name, prepare] of [
+  [
+    'a 503 of Ayla token_sign_in',
+    (server) => {
+      server.exchangeStatus = 503;
+    },
+  ],
+  [
+    'an Auth0 timeout',
+    (server) =>
+      server.queue.push({
+        match: (r) => r.path === '/oauth/token',
+        throws: new SharkError('timeout', 'no answer within 15 s'),
+      }),
+  ],
+  [
+    'an Auth0 429',
+    (server) =>
+      server.queue.push({
+        match: (r) => r.path === '/oauth/token',
+        status: 429,
+        headers: { 'retry-after': '60' },
+        body: { error: 'too_many_requests' },
+      }),
+  ],
+  [
+    'an Auth0 reset (ECONNRESET)',
+    (server) =>
+      server.queue.push({
+        match: (r) => r.path === '/oauth/token',
+        throws: new SharkError('network', 'connection reset', { socket: 'ECONNRESET' }),
+      }),
+  ],
+]) {
+  test(`${name}: the password is sent once in 6 h, then a stop that waits for a click`, async (t) => {
+    const server = fakeShark();
+    prepare(server);
+    const { gladys, advance, store } = await setup(t, { server, create: false });
+    await advance(6 * HOUR, MINUTE);
+    assert.equal(server.passwordsSent(), 1);
+    assert.ok(['interrupted', 'incomplete'].includes(store.data.block.kind), store.data.block.kind);
+    assert.match(message(gladys).fr, /Se connecter à Shark/);
+    assert.doesNotMatch(message(gladys).fr, /refusé l'e-mail/);
+    const exchanges = server.requests.filter((r) => r.path === '/api/v1/token_sign_in').length;
+    assert.ok(exchanges <= 3, `${exchanges} exchanges`);
+  });
+}
+
+test('an Ayla exchange that fails once: tried again with the id token, not the password', async (t) => {
+  const server = fakeShark();
+  server.queue.push({ match: (r) => r.path === '/api/v1/token_sign_in', status: 502 });
+  const { gladys, advance } = await setup(t, { server, create: false });
+  assert.equal(gladys.fake.connectionStatus.connected, false);
   await advance(2 * MINUTE, 10 * SECOND);
   assert.equal(gladys.fake.connectionStatus.connected, true);
-  assert.equal(server.signIns().length, 2);
+  assert.equal(server.passwordsSent(), 1);
+});
+
+test('after an accepted password, a refused exchange is "not finished", not "refused"', async (t) => {
+  const server = fakeShark();
+  server.exchangeStatus = 401;
+  const { gladys, store } = await setup(t, { server, create: false });
+  assert.equal(store.data.block.kind, 'incomplete');
+  assert.match(message(gladys).fr, /connexion est inachevée/);
+  assert.doesNotMatch(message(gladys).fr, /a refusé l'e-mail/);
+});
+
+test('US: a failure of the consent step after the password is "not finished"', async (t) => {
+  const server = fakeShark();
+  server.queue.push({ match: (r) => r.path === '/u/consent' && r.method === 'POST', status: 500 });
+  const { gladys, store } = await setup(t, {
+    server,
+    config: { ...CONFIG, region: 'us' },
+    create: false,
+  });
+  assert.equal(store.data.block.kind, 'incomplete');
+  assert.match(message(gladys).fr, /inachevée/);
+});
+
+test('US: the code exchange sends only its Content-Type, no cookie', async (t) => {
+  const { server } = await setup(t, { config: { ...CONFIG, region: 'us' } });
+  const exchange = server.requests.find(
+    (r) => r.path === '/oauth/token' && r.body?.grant_type === 'authorization_code',
+  );
+  assert.deepEqual(Object.keys(exchange.headers).sort(), ['Content-Length', 'Content-Type']);
+});
+
+test('/data unreadable: no sign-in by itself; "Sign in" replaces it', async (t) => {
+  const store = memoryStore();
+  store.load = async () => {
+    throw new StoreError('cannot read the state (EACCES)');
+  };
+  const { gladys, server } = await setup(t, { store, create: false });
+  assert.equal(server.requests.length, 0);
+  assert.match(message(gladys).fr, /\/data est illisible/);
+  const ack = await gladys.fake.action(ACTIONS.SIGN_IN);
+  assert.match(ack.data.message.fr, /Connecté à Shark/);
+  assert.equal(server.passwordsSent(), 1);
+});
+
+test('/data that cannot be written: the password is never sent', async (t) => {
+  const store = memoryStore();
+  store.save = async () => {
+    throw new Error('EROFS');
+  };
+  const { gladys, server } = await setup(t, { store, create: false });
+  assert.equal(server.passwordsSent(), 0);
+  assert.match(message(gladys).fr, /\/data est illisible ou ne peut pas être écrit/);
+});
+
+test('a configuration event before the first connection never lifts a stop', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: NOW });
+  const store = memoryStore({
+    account: accountKey('eu', EMAIL),
+    tokens: null,
+    pause: null,
+    block: { kind: 'locked' },
+    signIn: false,
+  });
+  const server = fakeShark();
+  const gladys = createFakeGladys({ config: CONFIG });
+  const app = makeApp(gladys, server, store, []);
+  t.after(() => app.stop());
+  await app.configUpdated(CONFIG);
+  await gladys.connect();
+  await settle();
+  assert.equal(server.requests.length, 0);
+  assert.equal(store.data.block.kind, 'locked');
+  assert.match(gladys.fake.connectionStatus.message.fr, /bloqué le compte/);
+});
+
+test('a 300 s token: renewed at half its life, never in a loop', async (t) => {
+  const server = fakeShark({ lifetime: 300 * SECOND });
+  const { gladys, advance } = await setup(t, { server });
+  await advance(30 * MINUTE, 10 * SECOND);
+  const refreshes = server.refreshes().length;
+  assert.ok(refreshes >= 10 && refreshes <= 13, `${refreshes} renewals in 30 min`);
+  const times = server.refreshes().map((r) => r.at);
+  for (let i = 1; i < times.length; i += 1) {
+    assert.ok(times[i] - times[i - 1] >= MINUTE, 'two renewals at least a minute apart');
+  }
+  assert.equal(gladys.fake.connectionStatus.connected, true);
+  assert.equal(server.signIns().length, 1);
+});
+
+test('the error of a feature that cannot be set never holds the whole serial number', async (t) => {
+  const { gladys } = await setup(t);
+  const device = deviceOf(gladys, DSNS.salon);
+  const ack = await gladys.fake.setValue(device, featureOf(gladys, DSNS.salon, 'battery'), 1);
+  assert.equal(ack.success, false);
+  assert.ok(!ack.error.includes(DSNS.salon));
 });
 
 test('an API 401 on a read: one renewal, the read tried once more', async (t) => {

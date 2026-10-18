@@ -5,8 +5,11 @@
 //     (a hash of the region and the e-mail): a restart does not sign in again;
 //   - `signIn`: one sign-in with the password is still allowed for these
 //     credentials (they were just saved, or "Sign in" was clicked);
+//   - `preSend`: the sign-ins already tried again after a failure proved to
+//     come before the password left (two at most);
 //   - the pauses (429, 5xx) and the stops (refused password, verification,
-//     blocked account, expired session), bounded when read back.
+//     blocked account, interrupted or unfinished sign-in, expired session),
+//     bounded when read back.
 // The file is readable by the container user only (0600).
 // -----------------------------------------------------------------------------
 
@@ -15,15 +18,40 @@ import { TIMINGS } from './constants.js';
 
 export const STATE_FILE = '/data/sharkiq-state.json';
 
+/** /data could not be read (or written): never a sign-in by itself then. */
+export class StoreError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'StoreError';
+  }
+}
+
+const safeCode = (err) =>
+  typeof err?.code === 'string' && /^[A-Z_]{1,32}$/.test(err.code) ? err.code : 'error';
+
 export function fileStore(path = STATE_FILE) {
   // One write at a time: two saves never share the temporary file.
   let chain = Promise.resolve();
   return {
+    /**
+     * The saved state; null when there is none yet (ENOENT). Any other
+     * failure (EACCES, a corrupt file) throws a StoreError: the caller then
+     * signs in only on a click.
+     */
     async load() {
+      let text;
       try {
-        return JSON.parse(await readFile(path, 'utf8'));
+        text = await readFile(path, 'utf8');
+      } catch (err) {
+        if (err?.code === 'ENOENT') {
+          return null;
+        }
+        throw new StoreError(`cannot read the state (${safeCode(err)})`);
+      }
+      try {
+        return JSON.parse(text);
       } catch {
-        return null;
+        throw new StoreError('the state file is not valid JSON');
       }
     },
     save(data) {
@@ -52,7 +80,15 @@ const text = (value) =>
   typeof value === 'string' && value.length >= 8 && value.length <= 8192 ? value : undefined;
 
 export const PAUSE_KINDS = ['rate', 'unavailable'];
-export const BLOCK_KINDS = ['refused', 'verification', 'locked', 'unsupported', 'session_expired'];
+export const BLOCK_KINDS = [
+  'refused',
+  'verification',
+  'locked',
+  'unsupported',
+  'session_expired',
+  'interrupted',
+  'incomplete',
+];
 
 /**
  * The persisted state, repaired; the end of a pause is capped from `now`, so
@@ -67,6 +103,7 @@ export function normalizeMemory(raw, now = Date.now()) {
           accessToken: t.accessToken,
           refreshToken: t.refreshToken,
           expiresAt: time(t.expiresAt) ?? 0,
+          lifetime: time(t.lifetime),
         }
       : null;
   const p = raw?.pause;
@@ -92,5 +129,14 @@ export function normalizeMemory(raw, now = Date.now()) {
               : undefined,
         }
       : null;
-  return { account, tokens, pause, block, signIn: account !== '' && raw?.signIn === true };
+  const retries = Number.isInteger(raw?.preSend) && raw.preSend >= 0 ? raw.preSend : 0;
+  return {
+    account,
+    tokens,
+    pause,
+    block,
+    signIn: account !== '' && raw?.signIn === true,
+    /** Sign-ins already tried again after a failure before the password left. */
+    preSend: Math.min(retries, TIMINGS.preSendRetries),
+  };
 }

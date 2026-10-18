@@ -7,7 +7,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { auth0Error, auth0SignIn, cookieJar, pkcePair } from '../src/auth0.js';
+import { auth0Error, auth0SignIn, cookieJar, deepLinkParams, pkcePair } from '../src/auth0.js';
+import { SharkError } from '../src/http.js';
 import { TEST_REGIONS } from './fixtures/shark.js';
 
 const answer = (status, body, headers = {}) => ({
@@ -86,10 +87,60 @@ test('an Auth0 error in the final redirect is read as such', async () => {
   );
 });
 
-test('the EU password grant: no id token in a 200 is "unsupported"', async () => {
+test('the EU password grant: no id token in a 200 is "unsupported", after the password', async () => {
   const transport = async () => answer(200, { access_token: 'x' });
   await assert.rejects(
     auth0SignIn({ transport, region: TEST_REGIONS.eu, email: 'a@b.c', password: 'pw' }),
-    (err) => err.kind === 'unsupported',
+    (err) => err.kind === 'unsupported' && err.afterPassword === true,
+  );
+});
+
+test('a failure is "before send" only for a socket code that proves it, on the first request', async () => {
+  const fail = (socket) => async () => {
+    throw new SharkError('network', 'x', { socket });
+  };
+  const run = (transport) =>
+    auth0SignIn({ transport, region: TEST_REGIONS.eu, email: 'a@b.c', password: 'pw' });
+  for (const socket of ['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH']) {
+    await assert.rejects(run(fail(socket)), (err) => err.beforeSend === true, socket);
+  }
+  for (const socket of ['ECONNRESET', 'ETIMEDOUT', 'EPIPE', undefined]) {
+    await assert.rejects(run(fail(socket)), (err) => err.beforeSend === false, String(socket));
+  }
+  await assert.rejects(
+    run(async () => {
+      throw new SharkError('timeout', 'no answer');
+    }),
+    (err) => err.beforeSend === false,
+  );
+});
+
+test('the code is read only from the exact deep link of the app', () => {
+  const link = 'com.sharkninja.shark://login.sharkninja.com/ios/com.sharkninja.shark/callback';
+  assert.equal(deepLinkParams(`${link}?code=abc&state=s`).get('code'), 'abc');
+  assert.ok(deepLinkParams(link));
+  for (const trap of [
+    `${link}.evil?code=abc`,
+    `${link}/../steal?code=abc`,
+    `${link}x?code=abc`,
+    `https://auth-us.test/other?code=abc`,
+    `com.sharkninja.shark://evil.test/ios/com.sharkninja.shark/callback?code=abc`,
+    '',
+  ]) {
+    assert.equal(deepLinkParams(trap), undefined, trap);
+  }
+});
+
+test('a look-alike deep link in a redirect ends the sign-in, after the password', async () => {
+  const link = 'com.sharkninja.shark://login.sharkninja.com/ios/com.sharkninja.shark/callback';
+  const transport = async (url) => {
+    if (url.endsWith('/co/authenticate')) {
+      return answer(200, { login_ticket: 'ticket-1' });
+    }
+    return answer(302, '', { location: `${link}.evil?code=stolen` });
+  };
+  await assert.rejects(
+    auth0SignIn({ transport, region: TEST_REGIONS.us, email: 'a@b.c', password: 'pw' }),
+    (err) => err.kind === 'unsupported' && err.afterPassword === true,
   );
 });

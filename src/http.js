@@ -29,7 +29,7 @@ import { LIMITS, TIMINGS } from './constants.js';
  * - `http`: any other status.
  */
 export class SharkError extends Error {
-  constructor(kind, message, { status, retryAfter, code, source } = {}) {
+  constructor(kind, message, { status, retryAfter, code, source, socket } = {}) {
     super(message);
     this.name = 'SharkError';
     this.kind = kind;
@@ -38,6 +38,12 @@ export class SharkError extends Error {
     /** A short machine code of the cloud (an Auth0 `error`), checked: never free text. */
     this.code = code;
     this.source = source;
+    /** The socket error code of a `network` error (ENOTFOUND…), checked. */
+    this.socket = socket;
+    /** Sign-in only: proved to have failed before the password left (see auth0.js). */
+    this.beforeSend = false;
+    /** Sign-in only: failed after Auth0 accepted the password. */
+    this.afterPassword = false;
   }
 }
 
@@ -58,8 +64,23 @@ export function networkError(err) {
     return err;
   }
   const code = typeof err?.code === 'string' && /^[A-Z_]{1,32}$/.test(err.code) ? err.code : '';
-  return new SharkError('network', NETWORK_REASONS[code] ?? (code || 'network error'));
+  return new SharkError('network', NETWORK_REASONS[code] ?? (code || 'network error'), {
+    socket: code || undefined,
+  });
 }
+
+/**
+ * Socket errors raised before any byte of the request could leave: the name
+ * did not resolve, or no connection was opened. A reset or a timeout may
+ * come after the request was sent, so they are not in the list.
+ */
+export const BEFORE_SEND = new Set([
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ECONNREFUSED',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+]);
 
 /** A short, secret-free reason for a log. */
 export function errorReason(err) {

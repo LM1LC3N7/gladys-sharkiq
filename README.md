@@ -33,13 +33,23 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (SharkApp) ⇄ src/ayla.js ⇄
   sharkiq, one flow per sign-in, never a second one on failure.
 - **The password only on a click**: one sign-in is allowed per saved
   credentials (persisted as `signIn` in `/data`), then only "Sign in to
-  Shark". A refusal (`invalid_grant`, `access_denied`…), a verification
-  (`requires_verification`, `mfa_required`), a lockout
-  (`too_many_attempts`), an unknown answer or a refused refresh token is a
-  stop kept in `/data`, never lifted by itself (a reconnection to Gladys
-  neither). Only network errors, timeouts, 5xx and 429 keep the allowance.
+  Shark". The allowance is used up and saved (a failed save sends nothing)
+  BEFORE the password leaves. Only a failure proved to come before it left,
+  on the first Auth0 request (ENOTFOUND, EAI_AGAIN, ECONNREFUSED,
+  ENETUNREACH, EHOSTUNREACH), gives it back, twice at most (`preSend` in
+  `/data`). Everything else is a stop kept in `/data`, never lifted by
+  itself (a reconnection to Gladys neither): a refusal (`invalid_grant`,
+  `access_denied`…), a verification (`requires_verification`,
+  `mfa_required`), a lockout (`too_many_attempts`), an unknown answer,
+  "interrupted" (Auth0 timeout, reset, 5xx or 429), "incomplete" (a failure
+  after Auth0 accepted the password: a US step, or Ayla), an unreadable
+  `/data`, a refused refresh token. The id token of an accepted password is
+  kept in memory, and only its Ayla exchange is tried again (3 times,
+  spaced). The EU flow is the direct password grant: the Auth0 bot detection
+  may refuse it, with no way around it.
 - **Renewal**: a timer refreshes the Ayla token 10 minutes before it expires
-  (`/users/refresh_token.json`), whatever the poll interval; failures retried
+  (half its lifetime for a short token; two renewals at least 1 min apart on
+  every path) (`/users/refresh_token.json`), whatever the poll interval; failures retried
   after 1, 5, 15, 60 min; a 429 of the sign-in service delays it. An API 401
   renews at most every 10 minutes and retries once.
 - **Reading**: `devices.json` every 10 min (names, models, online), then

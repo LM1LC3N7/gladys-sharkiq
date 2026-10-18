@@ -64,7 +64,7 @@ export function tokensOf(data, now) {
     Number.isFinite(seconds) && seconds > 0
       ? Math.min(seconds * 1000, TIMINGS.tokenLifetimeMax)
       : TIMINGS.tokenLifetime;
-  return { accessToken: access, refreshToken: refresh, expiresAt: now + lifetime };
+  return { accessToken: access, refreshToken: refresh, expiresAt: now + lifetime, lifetime };
 }
 
 export class AylaClient {
@@ -80,6 +80,8 @@ export class AylaClient {
     this.renewing = undefined;
     /** When an API 401 last forced a renewal (at most one per unauthorizedRenewGap). */
     this.lastUnauthorizedRenew = -Infinity;
+    /** When the last renewal started (two are at least TIMINGS.renewMinGap apart). */
+    this.lastRenewAt = -Infinity;
     /** Per-request timeout; undefined = TIMINGS.requestTimeout (shorter for the buttons). */
     this.timeout = undefined;
     /** Called after the tokens changed (persist them). */
@@ -110,9 +112,19 @@ export class AylaClient {
     return Boolean(this.tokens?.accessToken) && this.tokens.expiresAt - ms > this.now();
   }
 
+  /**
+   * How long before its expiry the token is renewed: the margin, or half the
+   * lifetime of a short token (a 300 s token is renewed after 150 s, never in
+   * a loop).
+   */
+  get margin() {
+    const lifetime = this.tokens?.lifetime ?? TIMINGS.tokenLifetime;
+    return Math.min(TIMINGS.tokenMargin, lifetime / 2);
+  }
+
   /** When the token should be renewed (its expiry minus the margin), or undefined. */
   get renewAt() {
-    return this.tokens ? this.tokens.expiresAt - TIMINGS.tokenMargin : undefined;
+    return this.tokens ? this.tokens.expiresAt - this.margin : undefined;
   }
 
   /** JSON POST to the Ayla user service (sign-in, renewal). */
@@ -132,23 +144,31 @@ export class AylaClient {
   }
 
   /**
-   * A full sign-in with the password (Auth0, then Ayla). Only src/app.js
-   * calls it, under its rules.
+   * The Auth0 step of a sign-in: the password for an id token. Only
+   * src/app.js calls it, under its rules (once per click or saved
+   * credentials).
    */
-  async signIn() {
+  async auth0() {
     if (!this.hasCredentials) {
       throw new SharkError('no_credentials', 'no e-mail or password');
     }
-    const { email, region } = this;
-    const idToken = await auth0SignIn({
+    return auth0SignIn({
       transport: this.transport,
-      region,
-      email,
+      region: this.region,
+      email: this.email,
       password: this.password,
       timeout: this.timeout ?? TIMINGS.requestTimeout,
       now: this.now,
       random: this.random,
     });
+  }
+
+  /**
+   * The Ayla step: an id token exchanged at token_sign_in (no password), for
+   * the Ayla tokens.
+   */
+  async exchange(idToken) {
+    const { email, region } = this;
     const answer = await this.userPost('/api/v1/token_sign_in', {
       app_id: region.appId,
       app_secret: region.appSecret,
@@ -181,7 +201,7 @@ export class AylaClient {
    * renewal at a time. Never the password: no refresh token, or a refused
    * one, is `session_expired`.
    */
-  token({ force = false, validity = TIMINGS.tokenMargin, timeout } = {}) {
+  token({ force = false, validity = this.margin, timeout } = {}) {
     if (!force && this.tokenValidFor(validity)) {
       return Promise.resolve(this.tokens.accessToken);
     }
@@ -192,12 +212,19 @@ export class AylaClient {
     }
     return this.renewing;
   }
-
   async renew({ timeout }) {
     const before = this.tokens;
     if (!before?.refreshToken) {
       throw new SharkError('session_expired', 'no session');
     }
+    if (this.now() - this.lastRenewAt < TIMINGS.renewMinGap) {
+      // Whatever asks (timer, read, 401, command): never two renewals within a minute.
+      if (before.accessToken && before.expiresAt > this.now()) {
+        return before.accessToken;
+      }
+      throw new SharkError('unauthorized', 'renewed less than a minute ago');
+    }
+    this.lastRenewAt = this.now();
     const answer = await this.userPost(
       '/users/refresh_token.json',
       { user: { refresh_token: before.refreshToken } },

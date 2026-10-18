@@ -129,6 +129,18 @@ export const T = {
       `Shark answered the sign-in in a way this integration does not know${detail ? ` (${detail})` : ''}. It never tries again by itself: ${SIGN_IN_HINT.en}.`,
       `Shark a répondu à la connexion d'une façon que cette intégration ne connaît pas${detail ? ` (${detail})` : ''}. Elle ne réessaie jamais d'elle-même : ${SIGN_IN_HINT.fr}.`,
     ),
+  interrupted: both(
+    `The sign-in to Shark was interrupted (no answer, a server error or too many requests) after the password was sent. The integration never sends it again by itself: ${SIGN_IN_HINT.en}.`,
+    `La connexion à Shark a été interrompue (pas de réponse, erreur serveur ou trop de requêtes) après l'envoi du mot de passe. L'intégration ne le renvoie jamais d'elle-même : ${SIGN_IN_HINT.fr}.`,
+  ),
+  incomplete: both(
+    `Shark accepted the password, but the sign-in did not finish (the next step failed). This is not a refused password. The integration never signs in again by itself: ${SIGN_IN_HINT.en}.`,
+    `Shark a accepté le mot de passe, mais la connexion est inachevée (l'étape suivante a échoué). Ce n'est pas un mot de passe refusé. L'intégration ne se reconnecte jamais d'elle-même : ${SIGN_IN_HINT.fr}.`,
+  ),
+  storeBroken: both(
+    `The state of the integration in /data cannot be read or written (permissions, or a damaged file). It never signs in by itself then: ${SIGN_IN_HINT.en}.`,
+    `L'état de l'intégration dans /data est illisible ou ne peut pas être écrit (droits, ou fichier abîmé). Elle ne se connecte alors jamais d'elle-même : ${SIGN_IN_HINT.fr}.`,
+  ),
   sessionExpired: both(
     `The Shark session expired. The integration never signs in again with the password by itself: ${SIGN_IN_HINT.en}.`,
     `La session Shark a expiré. L'intégration ne se reconnecte jamais d'elle-même avec le mot de passe : ${SIGN_IN_HINT.fr}.`,
