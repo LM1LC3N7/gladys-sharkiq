@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-18
+
 ### Added
 
 - Shark robot vacuums through the Shark cloud (SharkNinja Auth0 and Ayla
@@ -57,4 +59,5 @@ the notes of the version's GitHub Release.
 - The docs say the European sign-in is the direct Auth0 password grant, which
   the SharkNinja bot detection may refuse with no way around it.
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-sharkiq/commits/main
+[Unreleased]: https://github.com/LM1LC3N7/gladys-sharkiq/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/LM1LC3N7/gladys-sharkiq/releases/tag/v0.1.1
