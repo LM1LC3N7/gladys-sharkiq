@@ -1,177 +1,177 @@
 {
   "manifest_version": 1,
   "type": "device",
-  "name": "Demo Devices Template",
+  "name": "Shark IQ",
   "description": {
-    "en": "Starter template showing sensors, a switch, a dimmable light and a smart plug.",
-    "fr": "Template de démarrage : capteurs, interrupteur, lampe variable et prise connectée."
+    "en": "Shark robot vacuums via the Shark cloud: state, battery, suction power, start, dock.",
+    "fr": "Aspirateurs robots Shark par le cloud Shark : état, batterie, puissance, démarrage, base."
   },
-  "version": "1.0.0",
-  "docker_image": "ghcr.io/gladysassistant/integration-template-js:1.0.0",
+  "version": "0.1.0",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-sharkiq:0.1.0",
   "gladys_version": ">=5.1.0",
-  "cover_image": "https://raw.githubusercontent.com/GladysAssistant/integration-template-js/master/cover.png",
-  "categories": ["lighting", "security", "environment"],
-  "transports": ["local", "cloud"],
+  "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-sharkiq/main/cover.png",
+  "categories": ["appliances"],
+  "transports": ["cloud"],
   "config_schema": [
     {
       "key": "intro",
       "type": "section",
-      "label": { "en": "Getting started", "fr": "Pour commencer" },
+      "label": {
+        "en": "Your Shark account",
+        "fr": "Votre compte Shark"
+      },
       "description": {
-        "en": "The demo weather station reads real data from the free Open-Meteo API: pick the coordinates to observe. No account, no API key.",
-        "fr": "La station météo de démonstration lit de vraies données via l'API gratuite Open-Meteo : choisissez les coordonnées à observer. Pas de compte, pas de clé d'API."
+        "en": "Brings the Shark robot vacuums of your SharkClean account into Gladys: state (cleaning, paused, returning, charging, error), battery, suction power, error, and the Start, Pause, Stop, Return to the dock and Locate buttons. Read every minute through the Shark cloud (SharkNinja and Ayla Networks). Enter the e-mail and the password of the SharkClean app, choose the region of the account, save, then add the robots from the Discovery tab. The password is used once when you save, then only when you click \"Sign in to Shark\". Unofficial API, never tested with a real robot or account. Not affiliated with SharkNinja.",
+        "fr": "Amène dans Gladys les aspirateurs robots Shark de votre compte SharkClean : état (nettoyage, pause, retour, charge, erreur), batterie, puissance d'aspiration, erreur, et les boutons Démarrer, Pause, Arrêter, Retour à la base et Localiser. Lecture chaque minute par le cloud Shark (SharkNinja et Ayla Networks). Saisissez l'e-mail et le mot de passe de l'application SharkClean, choisissez la région du compte, enregistrez, puis ajoutez les robots depuis l'onglet Découverte. Le mot de passe sert une fois à l'enregistrement, puis seulement quand vous cliquez sur « Se connecter à Shark ». API non officielle, jamais testée avec un vrai robot ni un vrai compte. Sans lien avec SharkNinja."
       },
       "links": [
         {
-          "url": "https://open-meteo.com/en/docs",
-          "label": { "en": "Open-Meteo documentation", "fr": "Documentation Open-Meteo" }
+          "url": "https://github.com/LM1LC3N7/gladys-sharkiq/blob/main/docs/fr.md",
+          "label": {
+            "en": "Guide (French)",
+            "fr": "Guide (français)"
+          }
+        },
+        {
+          "url": "https://github.com/LM1LC3N7/gladys-sharkiq/blob/main/docs/en.md",
+          "label": {
+            "en": "Guide (English)",
+            "fr": "Guide (anglais)"
+          }
         }
       ]
     },
     {
-      "key": "latitude",
-      "type": "number",
-      "label": { "en": "Latitude", "fr": "Latitude" },
-      "description": {
-        "en": "Latitude used for the demo weather sensor.",
-        "fr": "Latitude utilisée par le capteur météo de démonstration."
-      },
-      "placeholder": { "en": "e.g. 48.8566", "fr": "ex. 48.8566" },
-      "required": true,
-      "default": 48.8566,
-      "min": -90,
-      "max": 90
-    },
-    {
-      "key": "longitude",
-      "type": "number",
-      "label": { "en": "Longitude", "fr": "Longitude" },
-      "description": {
-        "en": "Longitude used for the demo weather sensor.",
-        "fr": "Longitude utilisée par le capteur météo de démonstration."
-      },
-      "placeholder": { "en": "e.g. 2.3522", "fr": "ex. 2.3522" },
-      "required": true,
-      "default": 2.3522,
-      "min": -180,
-      "max": 180
-    },
-    {
-      "key": "unit",
+      "key": "region",
       "type": "select",
-      "label": { "en": "Temperature unit", "fr": "Unité de température" },
+      "label": {
+        "en": "Region of the Shark account",
+        "fr": "Région du compte Shark"
+      },
+      "description": {
+        "en": "Europe for an account created in Europe or the United Kingdom; North America otherwise.",
+        "fr": "Europe pour un compte créé en Europe ou au Royaume-Uni ; Amérique du Nord sinon."
+      },
       "required": false,
-      "default": "celsius",
+      "default": "eu",
       "options": [
-        { "value": "celsius", "label": { "en": "Celsius", "fr": "Celsius" } },
-        { "value": "fahrenheit", "label": { "en": "Fahrenheit", "fr": "Fahrenheit" } }
+        {
+          "value": "eu",
+          "label": {
+            "en": "Europe",
+            "fr": "Europe"
+          }
+        },
+        {
+          "value": "us",
+          "label": {
+            "en": "North America",
+            "fr": "Amérique du Nord"
+          }
+        }
       ]
     },
     {
-      "key": "poll_frequency",
-      "type": "number",
-      "label": { "en": "Refresh interval (s)", "fr": "Intervalle de rafraîchissement (s)" },
+      "key": "email",
+      "type": "string",
+      "label": {
+        "en": "Shark e-mail",
+        "fr": "E-mail Shark"
+      },
       "description": {
-        "en": "How often sensors are polled, in seconds (one minute minimum).",
-        "fr": "Fréquence d'interrogation des capteurs, en secondes (une minute minimum)."
+        "en": "The one you sign in to the SharkClean app with.",
+        "fr": "Celui avec lequel vous vous connectez à l'application SharkClean."
+      },
+      "placeholder": {
+        "en": "you@example.com",
+        "fr": "vous@exemple.fr"
+      },
+      "required": true
+    },
+    {
+      "key": "password",
+      "type": "secret",
+      "label": {
+        "en": "Shark password",
+        "fr": "Mot de passe Shark"
+      },
+      "description": {
+        "en": "Kept by Gladys in its database, never shown again, sent only to the SharkNinja sign-in service (Auth0), and only when you save or click \"Sign in to Shark\".",
+        "fr": "Gardé par Gladys dans sa base, jamais réaffiché, envoyé seulement au service de connexion de SharkNinja (Auth0), et seulement quand vous enregistrez ou cliquez sur « Se connecter à Shark »."
+      },
+      "required": true
+    },
+    {
+      "key": "poll_interval",
+      "type": "number",
+      "label": {
+        "en": "Refresh interval (s)",
+        "fr": "Intervalle de rafraîchissement (s)"
+      },
+      "description": {
+        "en": "Seconds between two reads of the robots (30 to 900).",
+        "fr": "Secondes entre deux lectures des robots (30 à 900)."
       },
       "required": false,
-      "default": 300,
-      "min": 60,
-      "max": 3600
+      "default": 60,
+      "min": 30,
+      "max": 900
+    },
+    {
+      "key": "language",
+      "type": "select",
+      "label": {
+        "en": "Language of the feature names",
+        "fr": "Langue des noms des fonctionnalités"
+      },
+      "description": {
+        "en": "Used for the feature names of the robots added from now on, and for the error texts.",
+        "fr": "Sert aux noms des fonctionnalités des robots ajoutés désormais, et aux textes d'erreur."
+      },
+      "required": false,
+      "default": "fr",
+      "options": [
+        {
+          "value": "fr",
+          "label": {
+            "en": "French",
+            "fr": "Français"
+          }
+        },
+        {
+          "value": "en",
+          "label": {
+            "en": "English",
+            "fr": "Anglais"
+          }
+        }
+      ]
     }
   ],
   "actions": [
     {
-      "key": "test_weather",
-      "label": { "en": "Test the weather provider", "fr": "Tester le fournisseur météo" },
-      "timeout_seconds": 30
+      "key": "sign_in",
+      "label": {
+        "en": "Sign in to Shark",
+        "fr": "Se connecter à Shark"
+      },
+      "description": {
+        "en": "Signs in again with the password after a refusal, a verification or an expired session (the integration never does it by itself), then reads the robots once.",
+        "fr": "Se reconnecte avec le mot de passe après un refus, une vérification ou une session expirée (l'intégration ne le fait jamais d'elle-même), puis lit une fois les robots."
+      },
+      "timeout_seconds": 90
     },
     {
-      "key": "identify",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ]
-    }
-  ],
-  "scene_triggers": [
-    {
-      "key": "motion_detected",
-      "label": { "en": "Motion detected", "fr": "Mouvement détecté" },
-      "description": {
-        "en": "A demo motion sensor saw a person or an animal move.",
-        "fr": "Un détecteur de démonstration a vu bouger une personne ou un animal."
+      "key": "test_connection",
+      "label": {
+        "en": "Test the connection",
+        "fr": "Tester la connexion"
       },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Sensor", "fr": "Détecteur" }
-        },
-        {
-          "key": "target",
-          "type": "multi_select",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" },
-          "options": [
-            { "value": "person", "label": { "en": "Person", "fr": "Personne" } },
-            { "value": "animal", "label": { "en": "Animal", "fr": "Animal" } }
-          ]
-        }
-      ],
-      "variables": [
-        {
-          "key": "target",
-          "type": "string",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" }
-        }
-      ]
-    }
-  ],
-  "scene_actions": [
-    {
-      "key": "identify_device",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
       "description": {
-        "en": "Make a device signal itself (the demo light blinks).",
-        "fr": "Fait se signaler un appareil (la lampe de démonstration clignote)."
+        "en": "Reads the robots once with the current session. Never uses the password.",
+        "fr": "Lit une fois les robots avec la session en cours. N'utilise jamais le mot de passe."
       },
-      "timeout_seconds": 15,
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ],
-      "outputs": [
-        {
-          "key": "signalled",
-          "type": "boolean",
-          "label": { "en": "Device signalled", "fr": "Appareil signalé" }
-        }
-      ]
-    }
-  ],
-  "widgets": [
-    {
-      "key": "demo_status",
-      "label": { "en": "Demo status", "fr": "État de la démo" },
-      "description": {
-        "en": "Live temperature and plug power, plug connection and observed location.",
-        "fr": "Température et puissance en direct, connexion de la prise, position observée."
-      },
-      "icon": "activity",
-      "action_timeout_seconds": 15
+      "timeout_seconds": 60
     }
   ]
 }

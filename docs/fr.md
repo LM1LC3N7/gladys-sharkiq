@@ -1,67 +1,135 @@
-# Template de démonstration
+# Shark IQ
 
-Ceci est la documentation utilisateur de l'intégration. Gladys ré-héberge ce
-fichier et affiche un lien **Documentation** permanent vers lui dans l'écran
-de configuration (dans la langue de l'utilisateur, avec l'anglais en repli) —
-c'est au moment de configurer que l'utilisateur en a le plus besoin. Gardez
-les courtes indications d'accueil dans les blocs `section` du `config_schema`
-du manifest ; mettez ici le pas-à-pas détaillé (captures d'écran, dépannage…).
+Intégration non officielle, sans lien avec SharkNinja. Elle amène dans Gladys
+les **aspirateurs robots Shark** reliés à l'application **SharkClean**, par le
+cloud Shark (le service de connexion de SharkNinja et Ayla Networks), celui
+qu'utilise l'application.
+
+> **Attention : API non officielle, cette intégration n'a jamais été testée
+> avec un vrai robot ni un vrai compte.** Elle a été écrite à partir de la
+> bibliothèque sharkiq et testée contre un faux cloud Shark seulement.
+> SharkNinja peut changer son API à tout moment. Les retours sont les
+> bienvenus.
 
 ## Ce que vous obtenez
 
-Six appareils de démonstration apparaissent après l'installation : une
-station météo (vraies données Open-Meteo), un interrupteur, une lampe
-variable, une prise connectée avec mesure de puissance, un détecteur de
-mouvement et une caméra.
+Pour chaque robot du compte :
 
-## Configuration
+| Fonctionnalité         | Détail                                                                                    |
+| ---------------------- | ----------------------------------------------------------------------------------------- |
+| État                   | Lecture seule : nettoyage, pause, retour à la base, en charge, à la base, arrêté, erreur. |
+| Batterie               | En %.                                                                                     |
+| Puissance d'aspiration | Liste : Éco, Normal, Max.                                                                 |
+| Erreur                 | Texte, par exemple « Brosse rotative bloquée (4) » ou « Aucune erreur ».                  |
+| Démarrer le nettoyage  | Bouton.                                                                                   |
+| Pause                  | Bouton.                                                                                   |
+| Arrêter                | Bouton.                                                                                   |
+| Retour à la base       | Bouton.                                                                                   |
+| Localiser (bip)        | Bouton : le robot émet un son.                                                            |
 
-1. Ouvrez l'onglet **Configuration** de l'intégration.
-2. Renseignez la **latitude** et la **longitude** que la station météo de
-   démonstration doit observer (Paris par défaut), et choisissez votre unité
-   de température. L'**intervalle de rafraîchissement** règle la fréquence
-   de lecture de la station météo et de la puissance de la prise : toutes
-   les 5 minutes par défaut, toutes les minutes au plus.
-3. Enregistrez : les appareils apparaissent dans l'onglet **Découverte**,
-   prêts à être ajoutés.
+Le badge de chaque robot affiche « cloud », ou « injoignable » (avec un point
+orange) quand le cloud indique le robot hors ligne ou qu'il ne peut pas être
+lu.
 
-Le réglage **Préférer la connexion locale** pilote la prise de
-démonstration : elle affiche en badge le canal réellement utilisé (local ou
-cloud), avec un point orange quand elle fonctionne en mode dégradé (local
-refusé, bascule cloud).
+## Installation
 
-## Actions
+1. Vos robots doivent fonctionner dans l'application **SharkClean**.
+2. Dans Gladys, installez l'intégration Shark IQ, choisissez la **région** du
+   compte (Europe, ou Amérique du Nord), saisissez l'**e-mail** et le **mot de
+   passe** de l'application SharkClean, et enregistrez.
+3. Ajoutez les robots depuis l'onglet **Découverte**.
 
-- **Tester le fournisseur météo** — effectue une requête en direct vers
-  Open-Meteo et affiche la température et l'humidité actuelles sous le
-  bouton.
-- **Identifier un appareil** — choisissez un de vos appareils dans la liste
-  et il se signale (la lampe de démonstration « clignote » dans les logs).
+## Connexion : jamais sans votre clic
 
-## Scènes
+Le service de connexion de SharkNinja bloque un compte après plusieurs essais
+refusés, et peut demander une vérification (un code, un contrôle anti-robot).
+L'intégration n'envoie donc **le mot de passe qu'à votre demande** :
 
-L'intégration ajoute ses propres cartes à l'éditeur de scènes (Gladys 5.1
-ou plus récent), dans la catégorie **Intégrations** :
+- une fois quand vous enregistrez l'e-mail et le mot de passe (ou au premier
+  démarrage avec eux) ;
+- ensuite, seulement quand vous cliquez sur **Se connecter à Shark**.
 
-- **Mouvement détecté** (déclencheur) — lance la scène quand un détecteur
-  de démonstration voit bouger quelque chose. Choisissez éventuellement le
-  détecteur et ce qui a bougé (personne, animal) ; laissés vides, toute
-  détection correspond. Les actions suivantes peuvent lire ce qui a bougé
-  avec `{{triggerEvent.data.target}}`.
-- **Identifier un appareil** (action) — fait se signaler l'appareil choisi.
-  Elle indique si l'appareil a pu se signaler, pour que les actions
-  suivantes puissent en dépendre.
+Un mot de passe refusé, une vérification demandée, un compte bloqué ou une
+session expirée arrêtent l'intégration, et cet arrêt est gardé aux
+redémarrages : elle ne réessaie jamais d'elle-même. Corrigez ce qui est
+indiqué (dans l'application SharkClean si besoin), puis cliquez sur **Se
+connecter à Shark**. **Tester la connexion** lit les robots avec la session
+en cours et n'utilise jamais le mot de passe.
 
-## Tableau de bord
+Entre-temps, la session (environ 24 heures) est renouvelée par un minuteur,
+10 minutes avant sa fin, avec le jeton de rafraîchissement : sans le mot de
+passe.
 
-Ajoutez le widget **État de la démo** à un tableau de bord : il affiche en
-direct la température de la station météo et la puissance de la prise du
-bureau, la connexion utilisée par la prise (en orange si dégradée) et la
-position observée. Son bouton **Identifier la lampe** fait se signaler la
-lampe de démonstration.
+## Mot de passe, jetons et vie privée
 
-## Dépannage
+- Le mot de passe est **gardé par Gladys dans sa base, jamais réaffiché, et
+  envoyé seulement au service de connexion de SharkNinja** (Auth0), dans les
+  cas ci-dessus.
+- Les jetons d'Ayla sont gardés dans le volume `/data` de l'intégration pour
+  qu'un redémarrage ne se reconnecte pas. Sur l'hôte de Gladys, ce volume est
+  le dossier `<dossier de base de Gladys>/external-integrations/<sélecteur>` :
+  lisible par root et par l'uid 1000 (l'utilisateur du conteneur), absent des
+  sauvegardes de Gladys, supprimé à la désinstallation. **Le jeton de
+  rafraîchissement donne le contrôle des robots** tant qu'il est valable :
+  protégez cet hôte. L'e-mail et le mot de passe n'y sont jamais écrits.
+- Rien n'apparaît dans les journaux : ni mot de passe, ni jeton, ni e-mail, ni
+  numéro de série complet (seulement ses 4 derniers caractères).
+- Tout passe en HTTPS vers `logineu.sharkninja.com` (ou
+  `login.sharkninja.com`), puis `user-field-eu.aylanetworks.com` et
+  `ads-eu.aylanetworks.com` (ou `user-sharkue1` et `ads-sharkue1` en
+  Amérique du Nord).
 
-L'intégration journalise tout ce qu'elle fait : consultez les logs de
-l'intégration depuis l'interface Gladys (ou `docker logs` sur l'hôte) avec
-`LOG_LEVEL=debug` pour le détail complet.
+## Commandes
+
+- **Aucun interrupteur** : l'état est en lecture seule et les commandes sont
+  des boutons. Un « allume tout » ou un « éteins tout » d'une scène ou d'un
+  assistant vocal ne démarre ni n'arrête jamais un robot.
+- Démarrer, Pause, Retour à la base et la puissance d'aspiration **relisent
+  le robot** dans le cloud juste avant d'agir : la commande est refusée si
+  cette lecture échoue ou ne donne pas le mode du robot. « Déjà fait »
+  n'envoie rien (un démarrage sur un robot qui nettoie, une pause sur un
+  robot à la base), sauf si un autre ordre vient de partir (dans la minute) :
+  le cloud peut encore montrer l'état d'avant.
+- Arrêter et Localiser ne décident rien : ils partent sans relecture.
+- Les commandes d'un même robot passent une à la fois. Arrêter n'attend
+  jamais derrière elles, seulement derrière un démarrage déjà parti, pour
+  arriver après lui. Un démarrage en attente est annulé si un arrêt, une
+  pause ou un retour à la base arrive entre-temps.
+- Une commande qui ne peut pas partir dans les **3,5 secondes** suivant son
+  arrivée est refusée : Gladys affiche un échec au bout de 5 secondes, et
+  rien ne part après cet échec.
+- Si Shark ne confirme pas une commande partie, Gladys affiche « envoyée, sans
+  confirmation » : vérifiez l'état du robot, relu dans les secondes qui
+  suivent.
+
+## Rafraîchissement et erreurs
+
+- Les robots sont lus toutes les 60 secondes par défaut (30 à 900), une
+  requête par robot, plus la liste du compte toutes les 10 minutes et trois
+  lectures dans la minute qui suit une commande.
+- **Shark demande de ralentir** (HTTP 429) : une pause d'au moins 1 minute
+  (Retry-After s'il est donné, 6 h au plus), pour tous les chemins, commandes
+  comprises, gardée aux redémarrages.
+- **Erreur serveur** (5xx) : une pause de 1, 2, 5, 10 puis 15 minutes, jamais
+  plus courte que l'intervalle, gardée aux redémarrages.
+- **Réseau** : nouvel essai après 1, 2, 5, 10 puis toutes les 15 minutes.
+- Un robot illisible (404, erreur) ne marque que lui ; les autres sont lus.
+
+## Limites
+
+- Jamais testée avec un vrai robot ni un vrai compte : les noms des
+  propriétés, leurs valeurs et la connexion viennent de sharkiq 1.5.1.
+- La connexion nord-américaine passe par une page de consentement d'Auth0
+  lue automatiquement : si SharkNinja la change, la connexion échoue (arrêt,
+  sans nouvel essai).
+- Pas de nettoyage par pièce, pas de carte, pas de serpillière pour
+  l'instant.
+
+## Crédits
+
+- [sharkiq](https://github.com/sharkiqlibs/sharkiq) 1.5.1 (MIT) : la
+  connexion, l'API Ayla, les propriétés et les commandes sont portées en
+  JavaScript. Voir `THIRD_PARTY_NOTICES.md`.
+
+Shark, Shark IQ et SharkClean sont des marques de SharkNinja ; ce projet est
+sans lien avec SharkNinja.

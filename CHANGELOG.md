@@ -12,44 +12,27 @@ the notes of the version's GitHub Release.
 
 ### Added
 
-- A working example of scene triggers, scene actions and dashboard widgets
-  (Gladys 5.1.0 or later).
-- `CHANGELOG.md`, rolled by the Release workflow.
-- A GitHub Release for every version, with its changelog section as notes: the
-  Gladys Supervision page links each version to the repository's releases.
-- CI runs the tests on Node 22 and 24, and builds the Docker image.
-- Dependabot keeps the npm dependencies and the GitHub Actions up to date.
-- `SECURITY.md` (how to report a vulnerability) and `CLAUDE.md` (project rules
-  for contributors and coding assistants).
-- Manifest tests: `version` matches `package.json`, `docker_image` is tagged
-  with it, descriptions hold 10 to 100 characters, placeholders are
-  multi-language objects.
-- The latitude and longitude fields show an example value as placeholder.
+- Shark robot vacuums through the Shark cloud (SharkNinja Auth0 and Ayla
+  Networks, unofficial API ported from sharkiq 1.5.1), Europe and North
+  America accounts.
+- Sign-in with the e-mail and the password of the SharkClean app, used only
+  when the user saves them or clicks "Sign in to Shark": a refused password,
+  a verification, a blocked account or an expired session stops the
+  integration without any new try by itself, across restarts.
+- The Ayla token is renewed from the refresh token by a timer, 10 minutes
+  before it expires; the tokens are kept in `/data` so a restart does not
+  sign in again.
+- Per robot: state (cleaning, paused, returning, charging, docked, stopped,
+  error), battery, suction power (Eco, Normal, Max), error text.
+- Start, Pause, Stop, Return to the dock and Locate buttons (no switch). Start,
+  pause, dock and suction read the robot again just before acting; every
+  command is refused when it cannot leave within 3.5 s; one command at a time
+  per robot; a stop cancels a waiting start and lands after one in flight.
+- The robots are read every 60 s (30 to 900); a 429 pauses every path,
+  commands included, for 60 s to 6 h; a 5xx pauses the reads; both kept
+  across restarts. One unreadable or offline robot only gets a degraded badge.
+- "Sign in to Shark" and "Test the connection" buttons; the status and the
+  Discovery list are sent again at each reconnection to Gladys.
+- Feature names and texts in French or English.
 
-### Changed
-
-- Node.js 22 or later is required (Node 20 is end-of-life).
-- Integration SDK 0.15.0. The tests now run against the fake Gladys of the
-  SDK, which refuses the payloads Gladys refuses.
-- The refresh interval is one minute minimum, the fastest Gladys polls a
-  device. The plug's power is only sent when it changes, and every 30
-  minutes otherwise.
-
-### Fixed
-
-- Gladys refused the devices of the Discovery tab: the weather station and
-  the plug declared their poll frequency in seconds instead of one of the
-  values Gladys accepts, and were never polled. They now poll every minute,
-  and the readings follow the refresh interval of the configuration.
-
-- The release commit no longer fails `npm run format:check`: the Release
-  workflow updates the manifest `version` and `docker_image` in place instead
-  of re-printing the whole file with `jq`.
-- The integration can write to `/data`: the image creates the directory owned
-  by the `node` user, a new Docker volume was owned by root.
-- A sub-container running the integration's own image follows it to the new
-  tag at each release, as well as in the manifest of the build summary: it kept
-  the previous tag, which may not exist on the registry. Sub-containers on a
-  third-party image (a broker, a database...) keep theirs.
-
-[Unreleased]: https://github.com/GladysAssistant/integration-template-js/commits/main
+[Unreleased]: https://github.com/LM1LC3N7/gladys-sharkiq/commits/main
