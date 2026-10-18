@@ -137,6 +137,10 @@ export const T = {
     `Shark accepted the password, but the sign-in did not finish (the next step failed). This is not a refused password. The integration never signs in again by itself: ${SIGN_IN_HINT.en}.`,
     `Shark a accepté le mot de passe, mais la connexion est inachevée (l'étape suivante a échoué). Ce n'est pas un mot de passe refusé. L'intégration ne se reconnecte jamais d'elle-même : ${SIGN_IN_HINT.fr}.`,
   ),
+  notSent: both(
+    `Shark cannot be reached (unknown host name, or no connection): nothing was sent, the password neither. After three tries the integration waits for you: ${SIGN_IN_HINT.en} to try again.`,
+    `Shark est injoignable (nom introuvable, ou connexion impossible) : rien n'a été envoyé, ni le mot de passe. Après trois essais, l'intégration vous attend : ${SIGN_IN_HINT.fr} pour réessayer.`,
+  ),
   storeBroken: both(
     `The state of the integration in /data cannot be read or written (permissions, or a damaged file). It never signs in by itself then: ${SIGN_IN_HINT.en}.`,
     `L'état de l'intégration dans /data est illisible ou ne peut pas être écrit (droits, ou fichier abîmé). Elle ne se connecte alors jamais d'elle-même : ${SIGN_IN_HINT.fr}.`,

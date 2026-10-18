@@ -596,7 +596,8 @@ test('a failure before the password left (no DNS): tried again, twice at most, c
   assert.deepEqual([store.data.signIn, store.data.preSend], [true, 1]);
   await advance(6 * HOUR, MINUTE);
   assert.equal(server.signIns().length, 3, 'the first try and two more, never again');
-  assert.equal(store.data.block.kind, 'interrupted');
+  assert.equal(store.data.block.kind, 'not_sent');
+  assert.match(message(gladys).fr, /injoignable.*rien n'a été envoyé.*pour réessayer/);
   server.down = false;
   const ack = await gladys.fake.action(ACTIONS.SIGN_IN);
   assert.match(ack.data.message.fr, /Connecté à Shark/);
@@ -694,6 +695,31 @@ test('US: a failure of the consent step after the password is "not finished"', a
   });
   assert.equal(store.data.block.kind, 'incomplete');
   assert.match(message(gladys).fr, /inachevée/);
+});
+
+test('US: a 429 on /authorize after the password: "not finished" with its pause, the button waits', async (t) => {
+  const server = fakeShark();
+  server.queue.push({
+    match: (r) => r.path === '/authorize',
+    status: 429,
+    headers: { 'retry-after': '600' },
+    body: { error: 'too_many_requests' },
+  });
+  const { gladys, store, advance } = await setup(t, {
+    server,
+    config: { ...CONFIG, region: 'us' },
+    create: false,
+  });
+  assert.equal(store.data.block.kind, 'incomplete');
+  assert.deepEqual([store.data.pause.kind, store.data.pause.source], ['rate', 'auth']);
+  assert.equal(store.data.pause.until, NOW + 600 * SECOND);
+  assert.match(message(gladys).fr, /inachevée/);
+  const requests = server.requests.length;
+  await advance(5 * MINUTE, MINUTE);
+  const ack = await gladys.fake.action(ACTIONS.SIGN_IN);
+  assert.match(ack.data.message.fr, /ralentir : pause de/);
+  assert.equal(server.requests.length, requests, 'nothing sent during the pause');
+  assert.equal(server.passwordsSent(), 1);
 });
 
 test('US: the code exchange sends only its Content-Type, no cookie', async (t) => {

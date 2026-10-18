@@ -50,6 +50,10 @@ the notes of the version's GitHub Release.
   least a minute apart.
 - The US sign-in reads the code only from the exact link of the app, and its
   code exchange sends only its Content-Type.
+- A "too many requests" during any step of the sign-in, after the password
+  too, now pauses every path, the "Sign in to Shark" button included, for its
+  Retry-After; when Shark stays unreachable before anything was sent, the
+  status says so ("nothing was sent") and asks for a click to try again.
 - The docs say the European sign-in is the direct Auth0 password grant, which
   the SharkNinja bot detection may refuse with no way around it.
 

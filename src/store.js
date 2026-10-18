@@ -88,6 +88,7 @@ export const BLOCK_KINDS = [
   'session_expired',
   'interrupted',
   'incomplete',
+  'not_sent',
 ];
 
 /**

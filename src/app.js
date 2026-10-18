@@ -69,6 +69,7 @@ const STOPS = new Set([
   'session_expired',
   'interrupted',
   'incomplete',
+  'not_sent',
   'store',
 ]);
 
@@ -627,11 +628,21 @@ export class SharkApp {
 
   /** What a failed Auth0 step becomes (see signIn). */
   signInError(err) {
-    if (err.beforeSend && (this.memory.preSend ?? 0) < TIMINGS.preSendRetries) {
-      this.memory.preSend = (this.memory.preSend ?? 0) + 1;
-      this.memory.signIn = true;
-      this.logger.info('Shark: the sign-in failed before the password left; one more try later');
-      return err;
+    if (err.kind === 'rate_limited') {
+      // Whatever the stop, its Retry-After holds for every path, the button included.
+      this.pause(err);
+    }
+    if (err.beforeSend) {
+      if ((this.memory.preSend ?? 0) < TIMINGS.preSendRetries) {
+        this.memory.preSend = (this.memory.preSend ?? 0) + 1;
+        this.memory.signIn = true;
+        this.logger.info('Shark: the sign-in failed before the password left; one more try later');
+        return err;
+      }
+      // The last try failed before the password left too: nothing was sent.
+      return new SharkError('not_sent', 'Shark unreachable, nothing was sent', {
+        code: err.socket,
+      });
     }
     if (err.afterPassword) {
       return new SharkError('incomplete', 'the sign-in did not finish', {
@@ -641,9 +652,6 @@ export class SharkApp {
     }
     if (JUDGED.has(err.kind)) {
       return err;
-    }
-    if (err.kind === 'rate_limited') {
-      this.pause(err);
     }
     return new SharkError('interrupted', 'the sign-in was interrupted', {
       status: err.status,
@@ -662,6 +670,9 @@ export class SharkApp {
       await this.client.exchange(this.idToken);
     } catch (err) {
       this.exchangeFailures += 1;
+      if (err.kind === 'rate_limited') {
+        this.pause(err);
+      }
       if (EXCHANGE_TRANSIENT.has(err.kind) && this.exchangeFailures < TIMINGS.exchangeAttempts) {
         throw err;
       }
@@ -750,6 +761,8 @@ export class SharkApp {
         return T.interrupted;
       case 'incomplete':
         return T.incomplete;
+      case 'not_sent':
+        return T.notSent;
       case 'store':
         return T.storeBroken;
       default:

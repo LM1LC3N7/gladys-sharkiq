@@ -121,6 +121,12 @@ up to date at the end of every milestone.
   US step after the login ticket, a 200 without an id token, the Ayla
   exchange) is "incomplete" ("connexion inachevée", never "mot de passe
   refusé", review M1).
+- **A 429 always pauses** (approval R1): any `rate_limited` of a sign-in
+  step (before or after the password, the Ayla exchange too) sets the
+  Retry-After pause before the stop is chosen, so the "Sign in" button is
+  refused during it. **Nothing sent** (R2): when the last try allowed after
+  a failure proved before the send fails the same way, the stop is
+  `not_sent` ("Shark injoignable, rien n'a été envoyé"), not "interrupted".
 - **Id token kept for the Ayla exchange only**: in memory, never written. A
   network error, timeout, 5xx or 429 of token_sign_in is tried again on the
   next runs (the backoff spaces them), three attempts in all, then
