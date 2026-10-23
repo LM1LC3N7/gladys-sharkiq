@@ -6,8 +6,8 @@
     "en": "Shark robot vacuums via the Shark cloud: state, battery, suction power, start, dock.",
     "fr": "Aspirateurs robots Shark par le cloud Shark : état, batterie, puissance, démarrage, base."
   },
-  "version": "0.1.1",
-  "docker_image": "ghcr.io/lm1lc3n7/gladys-sharkiq:0.1.1",
+  "version": "0.1.2",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-sharkiq:0.1.2",
   "gladys_version": ">=5.1.0",
   "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-sharkiq/main/cover.png",
   "categories": ["appliances"],

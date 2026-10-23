@@ -1,6 +1,6 @@
 {
   "name": "gladys-sharkiq",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Gladys Assistant external integration for Shark robot vacuums (Shark cloud: SharkNinja Auth0 and Ayla Networks, unofficial API). Not affiliated with SharkNinja.",
   "type": "module",
